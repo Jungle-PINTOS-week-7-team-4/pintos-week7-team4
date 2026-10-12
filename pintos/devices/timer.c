@@ -169,21 +169,6 @@ void check_sleep_list (void) {
 	}
 
 	if (woke_up) intr_yield_on_return();
-	//struct thread *cur_thread = list_entry(list_front(&sleep_list), struct thread, elem);
-
-	// // 조건 충족시 리스트에서 꺼낸 후 unblock, cur_thread를 다음 스레드로 변경		
-	// while (cur_thread != NULL && cur_thread->wakeup_tick <= ticks) {
-	// 	if (list_empty (&sleep_list)) break;
-
-	// 	elem = list_pop_front(&sleep_list);	
-	// 	thread_unblock(cur_thread);
-
-	// 	if (!list_empty (&sleep_list))
-	// 		cur_thread = list_entry(list_front(&sleep_list), struct thread, elem);		
-	// }	
-
-	// // unblock 했다면 CPU yield	
-	// if (elem != NULL) intr_yield_on_return();
 }
 
 /* Timer interrupt handler. */
