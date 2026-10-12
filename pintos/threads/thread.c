@@ -79,6 +79,14 @@ static tid_t allocate_tid (void);
 // setup temporal gdt first.
 static uint64_t gdt[3] = { 0, 0x00af9a000000ffff, 0x00cf92000000ffff };
 
+bool thread_priority_less_eq(const struct list_elem *_a, const struct list_elem *_b, void *aux)
+{
+  struct thread *a = list_entry (_a, struct thread, elem);
+  struct thread *b = list_entry (_b, struct thread, elem);
+  
+  return a->priority <= b->priority;
+}
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -206,7 +214,9 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
-
+	if(thread_current()->priority < t->priority){
+		thread_yield();
+	}
 	return tid;
 }
 
@@ -240,7 +250,8 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+
+	list_insert_ordered(&ready_list, &t->elem, thread_priority_less_eq, NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -303,15 +314,23 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered (&ready_list, &curr->elem, thread_priority_less_eq ,NULL);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
+/* set_priority는 thread_yield() 하므로 원자적 연산 도중 호출시 문제 발생수 있다*/
 void
 thread_set_priority (int new_priority) {
+	enum intr_level old_level;
+
+	old_level = intr_disable();
 	thread_current ()->priority = new_priority;
+	if(!list_empty(&ready_list) && new_priority < (list_entry (list_back(&ready_list),struct thread, elem))->priority)
+		thread_yield(); 
+
+	intr_set_level(old_level);
 }
 
 /* Returns the current thread's priority. */
@@ -421,7 +440,7 @@ next_thread_to_run (void) {
 	if (list_empty (&ready_list))
 		return idle_thread;
 	else
-		return list_entry (list_pop_front (&ready_list), struct thread, elem);
+		return list_entry (list_pop_back (&ready_list), struct thread, elem); 
 }
 
 /* Use iretq to launch the thread */

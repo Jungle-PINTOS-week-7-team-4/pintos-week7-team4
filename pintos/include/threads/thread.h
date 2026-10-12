@@ -143,4 +143,7 @@ int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
 
+bool thread_priority_less_eq(const struct list_elem *_a, const struct list_elem *_b, void *aux);
+
+
 #endif /* threads/thread.h */
