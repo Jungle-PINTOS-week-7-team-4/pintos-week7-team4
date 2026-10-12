@@ -15,7 +15,7 @@ static void test_sleep (int thread_cnt, int iterations);
 void
 test_alarm_simultaneous (void) 
 {
-  test_sleep (3, 5);
+  test_sleep (3, 5); // #1 TC: test_sleep(3, 5) pass, #2 TC: test_sleep(8, 5) pass, #3 TC: test_sleep(3, 50) pass
 }
 
 /* Information about the test. */
@@ -58,8 +58,8 @@ test_sleep (int thread_cnt, int iterations)
   for (i = 0; i < thread_cnt; i++)
     {
       char name[16];
-      snprintf (name, sizeof name, "thread %d", i);
-      thread_create (name, PRI_DEFAULT, sleeper, &test);
+      snprintf (name, sizeof name, "thread %d", i); // name에 "thread i" 저장
+      thread_create (name, PRI_DEFAULT, sleeper, &test); // thread 생성
     }
   
   /* Wait long enough for all the threads to finish. */
@@ -86,9 +86,9 @@ sleeper (void *test_)
 
   for (i = 1; i <= test->iterations; i++) 
     {
-      int64_t sleep_until = test->start + i * 10;
-      timer_sleep (sleep_until - timer_ticks ());
-      *test->output_pos++ = timer_ticks () - test->start;
-      thread_yield ();
+      int64_t sleep_until = test->start + i * 10; // timer_ticks () + 100 + 10 * i
+      timer_sleep (sleep_until - timer_ticks ()); // '1초에 100tic'이므로 'sleep_until - timer_ticks ()'는 'timer_ticks () + 10 * i 보다 큰 수'
+      *test->output_pos++ = timer_ticks () - test->start; // test->output_pos에서 tick 저장하고 4바이트 이동
+      thread_yield (); // 현재 running 스레드 ready상태로 변경
     }
 }
