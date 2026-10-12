@@ -66,7 +66,7 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
+		list_insert_ordered(&sema->waiters, &thread_current ()->elem, thread_priority_less_eq, NULL);
 		thread_block ();
 	}
 	sema->value--;
@@ -101,19 +101,32 @@ sema_try_down (struct semaphore *sema) {
 /* Up or "V" operation on a semaphore.  Increments SEMA's value
    and wakes up one thread of those waiting for SEMA, if any.
 
-   This function may be called from an interrupt handler. */
+   This function may be called from an interrupt handler. 
+/* sema_up()은 thread_yield() 하므로 원자적 연산 도중 호출시 문제 발생수 있다*/
 void
 sema_up (struct semaphore *sema) {
-	enum intr_level old_level;
 
+	enum intr_level old_level;
+	int unblocked_priority = PRI_MIN;
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+	if (!list_empty (&sema->waiters)){
+		struct thread *t = list_entry (list_pop_back (&sema->waiters),struct thread, elem); // weaiters도 정렬되어 있어야 함
+		unblocked_priority = t->priority;
+		thread_unblock (t);
+	}
+
 	sema->value++;
 	intr_set_level (old_level);
+
+	if(unblocked_priority > thread_current()->priority){
+		if(intr_context()) {
+			intr_yield_on_return();
+		}else {
+			thread_yield();
+	}
+}
 }
 
 static void sema_test_helper (void *sema_);
