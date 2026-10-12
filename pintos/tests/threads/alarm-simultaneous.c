@@ -15,7 +15,7 @@ static void test_sleep (int thread_cnt, int iterations);
 void
 test_alarm_simultaneous (void) 
 {
-  test_sleep (3, 5);
+  test_sleep (3, 5); // #1 TC: test_sleep(3, 5) pass, #2 TC: test_sleep(8, 5) pass, #3 TC: test_sleep(3, 50) pass
 }
 
 /* Information about the test. */
@@ -86,9 +86,9 @@ sleeper (void *test_)
 
   for (i = 1; i <= test->iterations; i++) 
     {
-      int64_t sleep_until = test->start + i * 10;
-      timer_sleep (sleep_until - timer_ticks ());
-      *test->output_pos++ = timer_ticks () - test->start;
-      thread_yield ();
+      int64_t sleep_until = test->start + i * 10; 
+      timer_sleep (sleep_until - timer_ticks ()); 
+      *test->output_pos++ = timer_ticks () - test->start; 
+      thread_yield (); 
     }
 }
