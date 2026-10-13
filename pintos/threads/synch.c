@@ -32,6 +32,13 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+/* One semaphore in a list. */
+struct semaphore_elem {
+	struct list_elem elem;              /* List element. */
+	struct thread *t;
+	struct semaphore semaphore;         /* This semaphore. */
+};
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -71,6 +78,15 @@ sema_down (struct semaphore *sema) {
 	}
 	sema->value--;
 	intr_set_level (old_level);
+}
+
+static bool 
+sema_elem_priority_less_eq(const struct list_elem *_a, const struct list_elem *_b, void *aux)
+{
+  struct thread *a = list_entry (_a, struct semaphore_elem, elem)->t;
+  struct thread *b = list_entry (_b, struct semaphore_elem, elem)->t;
+  
+  return a->priority <= b->priority;
 }
 
 /* Down or "P" operation on a semaphore, but only if the
@@ -249,11 +265,7 @@ lock_held_by_current_thread (const struct lock *lock) {
 	return lock->holder == thread_current ();
 }
 
-/* One semaphore in a list. */
-struct semaphore_elem {
-	struct list_elem elem;              /* List element. */
-	struct semaphore semaphore;         /* This semaphore. */
-};
+
 
 /* Initializes condition variable COND.  A condition variable
    allows one piece of code to signal a condition and cooperating
@@ -295,7 +307,9 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
-	list_push_back (&cond->waiters, &waiter.elem);
+	waiter.t = thread_current();
+	// list_push_back (&cond->waiters, &waiter.elem);
+	list_insert_ordered(&cond->waiters, &waiter.elem, sema_elem_priority_less_eq, NULL);
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
 	lock_acquire (lock);
@@ -316,7 +330,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	if (!list_empty (&cond->waiters))
-		sema_up (&list_entry (list_pop_front (&cond->waiters),
+		sema_up (&list_entry (list_pop_back (&cond->waiters),
 					struct semaphore_elem, elem)->semaphore);
 }
 
