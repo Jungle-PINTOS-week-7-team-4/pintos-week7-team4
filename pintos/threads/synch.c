@@ -73,7 +73,7 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_insert_ordered(&sema->waiters, &thread_current ()->elem, thread_priority_less_eq, NULL);
+		list_push_back(&sema->waiters, &thread_current ()->elem);
 		thread_block ();
 	}
 	sema->value--;
@@ -128,7 +128,8 @@ sema_up (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	if (!list_empty (&sema->waiters)){
-		struct thread *t = list_entry (list_pop_back (&sema->waiters),struct thread, elem); // weaiters도 정렬되어 있어야 함
+		
+		struct thread *t = list_entry (list_pop_max(&sema->waiters, thread_priority_less, NULL),struct thread, elem); // fifo이면서 가장 큰 것 골라냄
 		unblocked_priority = t->priority;
 		thread_unblock (t);
 	}
@@ -217,8 +218,25 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	thread_current ()-> waiting_thread = lock->holder; // 의존관계 thread에 설정하기 
+
+	// holder에 donate하기. donate와 sema_down이 사이 문맥전환 없이 일어나야 한다
+	enum intr_level old_level = intr_disable();
+	struct thread *donee = lock->holder;
+	while(donee != NULL)
+	{
+		if(donee->priority < thread_current() -> priority){
+			thread_donate_priority(thread_current() -> priority, donee);
+		} else break;
+		donee = donee->waiting_thread;
+	}
+
 	sema_down (&lock->semaphore);
+	intr_set_level(old_level);
+
+	thread_current ()-> waiting_thread = NULL;
 	lock->holder = thread_current ();
+	list_push_back(& thread_current()->acquired_lock, &lock->elem);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -251,8 +269,12 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
+	list_remove(&lock->elem);
+
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
+
+	thread_set_priority(thread_current()->priority_orig);
 }
 
 /* Returns true if the current thread holds LOCK, false

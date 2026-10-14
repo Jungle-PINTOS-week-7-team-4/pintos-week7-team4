@@ -86,7 +86,13 @@ bool thread_priority_less_eq(const struct list_elem *_a, const struct list_elem 
   
   return a->priority <= b->priority;
 }
-
+bool thread_priority_less(const struct list_elem *_a, const struct list_elem *_b, void *aux)
+{
+  struct thread *a = list_entry (_a, struct thread, elem);
+  struct thread *b = list_entry (_b, struct thread, elem);
+  
+  return a->priority < b->priority;
+}
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -200,7 +206,6 @@ thread_create (const char *name, int priority,
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
-
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
 	t->tf.rip = (uintptr_t) kernel_thread;
@@ -251,7 +256,7 @@ thread_unblock (struct thread *t) {
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
 
-	list_insert_ordered(&ready_list, &t->elem, thread_priority_less_eq, NULL);
+	list_push_back(&ready_list, &t->elem);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -314,20 +319,52 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_insert_ordered (&ready_list, &curr->elem, thread_priority_less_eq ,NULL);
+		list_push_back (&ready_list, &curr->elem);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. */
+// does not yield, caller needs to implement it
+// boosts donee's effective priority
+void
+thread_donate_priority(int new_priority, struct thread *t){
+	enum intr_level old_level;
+
+	old_level = intr_disable();
+	if(t-> priority < new_priority) {
+		t-> priority = new_priority;
+	}
+
+	intr_set_level(old_level);
+}
+
+/* Sets the current thread's priority to NEW_PRIORITY. 가지고 있는 lock에 대해 donated priority를 자동 적용한다. */
 /* set_priority는 thread_yield() 하므로 원자적 연산 도중 호출시 문제 발생수 있다*/
 void
 thread_set_priority (int new_priority) {
 	enum intr_level old_level;
-
+	struct thread *current_thread = thread_current();
 	old_level = intr_disable();
-	thread_current ()->priority = new_priority;
-	if(!list_empty(&ready_list) && new_priority < (list_entry (list_back(&ready_list),struct thread, elem))->priority)
+	current_thread->priority_orig = new_priority;
+
+	int max_priority = PRI_MIN;
+	if(!list_empty(&current_thread->acquired_lock)){
+
+		for(struct list_elem *cur = list_front(&current_thread->acquired_lock); cur != list_end(&current_thread->acquired_lock); cur = list_next(cur)){
+			struct lock* current_lock = list_entry(cur, struct lock, elem);
+			struct list* waitlist_in_lock = &(current_lock->semaphore).waiters;
+			if(!list_empty(waitlist_in_lock)){
+				int cur_max = list_entry(list_max(waitlist_in_lock, thread_priority_less, NULL), struct thread, elem)->priority;
+				if(cur_max > max_priority) max_priority = cur_max;
+			}
+		}
+	}
+
+	if(max_priority < new_priority)
+		current_thread->priority = new_priority;
+	else current_thread->priority = max_priority;
+
+	if(!list_empty(&ready_list) && current_thread->priority < (list_entry (list_max(&ready_list, thread_priority_less, NULL),struct thread, elem))->priority)
 		thread_yield(); 
 
 	intr_set_level(old_level);
@@ -427,7 +464,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->priority_orig = priority;
 	t->magic = THREAD_MAGIC;
+	t->waiting_thread = NULL;
+	list_init(&t->acquired_lock); 
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -440,7 +480,7 @@ next_thread_to_run (void) {
 	if (list_empty (&ready_list))
 		return idle_thread;
 	else
-		return list_entry (list_pop_back (&ready_list), struct thread, elem); 
+		return list_entry (list_pop_max (&ready_list, thread_priority_less, NULL), struct thread, elem); 
 }
 
 /* Use iretq to launch the thread */
